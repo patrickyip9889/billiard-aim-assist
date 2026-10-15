@@ -1,0 +1,11 @@
+{
+  "name": "billiards-aim-assist",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "台球瞄准辅助 Web App（中式八球 / 斯诺克）",
+  "scripts": {
+    "test": "node --test tests/math.test.mjs tests/vision.test.mjs",
+    "start": "python3 -m http.server 8080"
+  }
+}

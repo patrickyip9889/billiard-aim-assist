@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+  <meta name="theme-color" content="#0d1117">
+  <meta name="description" content="台球瞄准辅助：拍照标定台面，自动计算假想球、切割角与重合度（中式八球 / 斯诺克）">
+  <title>台球瞄准助手</title>
+  <link rel="manifest" href="./manifest.webmanifest">
+  <link rel="icon" href="./icons/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png">
+  <link rel="stylesheet" href="./styles.css">
+  <link rel="preload" href="./vendor/opencv.js" as="script">
+  <script type="module" src="./src/main.js"></script>
+</head>
+<body>
+  <header>
+    <h1>🎱 台球瞄准助手</h1>
+    <select id="specSel" aria-label="球台规则">
+      <option value="chinese8" selected>中式八球</option>
+      <option value="snooker">斯诺克</option>
+    </select>
+  </header>
+
+  <main>
+    <div id="stageWrap">
+      <div id="stage" class="empty">
+        <canvas id="base"></canvas>
+        <canvas id="overlayCv"></canvas>
+        <video id="arVideo" playsinline muted autoplay></video>
+        <canvas id="loupe" width="264" height="264"></canvas>
+      </div>
+      <div id="hint">📷 拍照 / 选择台面照片开始，或点击「示例图」快速体验</div>
+    </div>
+
+    <div id="toolbar">
+      <div class="tgroup">
+        <label class="btn primary">📷 拍照<input id="shotInput" type="file" accept="image/*" capture="environment" hidden></label>
+        <label class="btn">🖼 相册<input id="fileInput" type="file" accept="image/*" hidden></label>
+        <button id="demoBtn" class="btn">✨ 示例图</button>
+        <button id="arBtn" class="btn">🎬 AR 取景</button>
+      </div>
+      <div class="tgroup">
+        <button id="arShotBtn" class="btn primary" hidden>📸 定格</button>
+        <button id="arCancelBtn" class="btn" hidden>✕ 取消</button>
+        <button id="autoBtn" class="btn" hidden>⚡ 自动识别</button>
+        <button id="calibDoneBtn" class="btn primary" hidden>完成标定 →</button>
+        <button id="pocketBtn" class="btn primary" hidden>选择袋口 →</button>
+        <button id="refineDoneBtn" class="btn primary" hidden>完成精化 ✓</button>
+      </div>
+      <div class="tgroup secondary">
+        <button id="backCalibBtn" class="btn" hidden>↺ 重新标定</button>
+        <button id="rotBtn" class="btn" hidden>🔄 换方向</button>
+        <button id="backBallsBtn" class="btn" hidden>↩ 重选球</button>
+        <button id="refineBtn" class="btn" hidden>🎯 袋口精化</button>
+        <button id="resetBtn" class="btn danger" hidden>✕ 换图重来</button>
+      </div>
+      <div class="tgroup nudge" id="nudgeGroup">
+        <span id="nudgeLabel" class="nudgeLabel" hidden></span>
+        <button class="btn nudgeBtn" data-dir="left" hidden>←</button>
+        <button class="btn nudgeBtn" data-dir="up" hidden>↑</button>
+        <button class="btn nudgeBtn" data-dir="down" hidden>↓</button>
+        <button class="btn nudgeBtn" data-dir="right" hidden>→</button>
+      </div>
+    </div>
+
+    <section id="panel" hidden>
+      <div id="statStrip">
+        <div class="cell"><span class="k">切割角</span><b id="vCut">—</b></div>
+        <div class="cell"><span class="k">重合度</span><b id="vOverlap" class="accent">—</b></div>
+        <div class="cell"><span class="k">打法</span><span id="vStyle">—</span></div>
+        <div class="cell"><span class="k">难度</span><span id="vDiff">—</span></div>
+        <div class="cell"><span class="k">目标袋</span><span id="vPocket">—</span></div>
+        <div class="cell"><span class="k">母球行程</span><span id="vCueT">—</span></div>
+        <div class="cell"><span class="k">目标球行程</span><span id="vTargetT">—</span></div>
+      </div>
+      <button id="figToggle" type="button">▾ 展开重合法示意</button>
+      <div id="cutFig" hidden>
+        <div class="figHead">
+          <span class="k">重合法示意 · <b>d1 = 2R·sinθ</b></span>
+          <div id="divSel" class="seg" role="group" aria-label="目标球刻度线等分">
+            <button type="button" data-v="0">无刻度</button>
+            <button type="button" data-v="6">6等分</button>
+            <button type="button" data-v="8" class="on">8等分</button>
+            <button type="button" data-v="16">16等分</button>
+          </div>
+          <span class="k figNote">白线 = 母球盘右缘</span>
+        </div>
+        <canvas id="cutCv"></canvas>
+        <div class="legend">
+          <span><i class="sw cue"></i>母球视线</span>
+          <span><i class="sw obj"></i>目标球</span>
+          <span><i class="sw line"></i>分界线</span>
+          <span class="lgtxt">d1 露出 · d2 被挡</span>
+        </div>
+      </div>
+      <div id="warn" hidden></div>
+    </section>
+
+    <p id="note">🔒 照片仅在本机浏览器内处理，不会上传 · 相机功能需 HTTPS 环境 · 添加到主屏幕可离线使用</p>
+  </main>
+</body>
+</html>
