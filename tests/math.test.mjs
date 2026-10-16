@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { computeHomography, applyH, invert3, mul3, reprojectionErrors } from '../src/math/homography.js';
 import { computeAim, overlapLabel, difficultyLabel } from '../src/math/aiming.js';
+import { computeKick } from '../src/math/kick.js';
 import { getSpec, rotateSpec, pocketWorldPoints, worldCorners } from '../src/specs.js';
 import { Calibrator } from '../src/ui/calibrator.js';
 
@@ -282,4 +283,60 @@ test('几何校验：袋口投影越界报错', () => {
   const iss = c.issues(300, 300, getSpec('chinese8'));
   assert.equal(iss.length, 1);
   assert.ok(iss[0].includes('袋口投影'), `消息: ${iss[0]}`);
+});
+
+test('解球：单库镜像法反弹点与折叠点一致', () => {
+  const spec = getSpec('chinese8');
+  const pocket = pocketWorldPoints(spec)[3];
+  const cue = { x: 1100, y: 800 };
+  const target = { x: 2100, y: 1000 };
+  const kick = computeKick({ cue, target, pocket, ballRadius: spec.ballD / 2, spec, maxCushions: 1 });
+  assert.ok(kick.solutions.length >= 1, '应至少找到一条解球路线');
+  const bottom = kick.solutions.find((s) => s.rails[0] === 'bottom');
+  assert.ok(bottom, '应存在下库解球方案');
+  const aim = { x: kick.ghost.x, y: 2 * spec.tableW - kick.ghost.y };
+  const s = (spec.tableW - cue.y) / (aim.y - cue.y);
+  const bx = cue.x + s * (aim.x - cue.x);
+  assert.ok(close(bottom.bounces[0].point.x, bx, 1e-6), `反弹点 x ${bottom.bounces[0].point.x} ≠ 折叠预测 ${bx}`);
+  assert.ok(close(bottom.bounces[0].point.y, spec.tableW, 1e-6));
+  const gl = Math.hypot(kick.ghost.x - bx, kick.ghost.y - spec.tableW);
+  assert.ok(close(bottom.arrivalDir.x, (kick.ghost.x - bx) / gl, 1e-9));
+  assert.ok(close(bottom.arrivalDir.y, (kick.ghost.y - spec.tableW) / gl, 1e-9));
+  assert.ok(bottom.cutDeg < 89.5, `解球切割角 ${bottom.cutDeg} 应小于 89.5°`);
+  const step = spec.tableL / 8;
+  const k = Math.min(7, Math.max(1, Math.round(bx / step)));
+  assert.equal(bottom.bounces[0].diamond.k, k);
+  assert.equal(bottom.label, `1库·下${k}`);
+  assert.ok(close(bottom.aimPoint.x, bx, 1e-9));
+  assert.ok(close(bottom.aimPoint.y, spec.tableW, 1e-9));
+});
+
+test('解球：多库枚举、验证链与最优排序', () => {
+  const spec = getSpec('chinese8');
+  const pocket = pocketWorldPoints(spec)[3];
+  const cue = { x: 1100, y: 800 };
+  const target = { x: 2100, y: 1000 };
+  const kick = computeKick({ cue, target, pocket, ballRadius: spec.ballD / 2, spec, maxCushions: 3 });
+  assert.ok(kick.solutions.length >= 1, '应找到多库解球方案');
+  for (const s of kick.solutions) {
+    assert.ok(s.cushions >= 1 && s.cushions <= 3);
+    assert.ok(s.rails.every((r, i) => i === 0 || r !== s.rails[i - 1]));
+    assert.ok(s.cutDeg < 89.5, `切割角 ${s.cutDeg} 应小于 89.5°`);
+    assert.match(s.label, /^\d库·[上下左右]\d(-[上下左右]\d)*$/);
+    assert.equal(s.label.split('-').length, s.cushions);
+  }
+  for (let i = 1; i < kick.solutions.length; i++) {
+    assert.ok(kick.solutions[i - 1].score <= kick.solutions[i].score + 1e-9, '方案应按分数升序排列');
+  }
+  assert.equal(kick.best, kick.solutions[0]);
+});
+
+test('解球：退化输入返回空结果', () => {
+  const spec = getSpec('chinese8');
+  const empty = computeKick({ spec, ballRadius: spec.ballD / 2 });
+  assert.equal(empty.solutions.length, 0);
+  assert.equal(empty.best, null);
+  const p = pocketWorldPoints(spec)[3];
+  const same = computeKick({ cue: p, target: p, pocket: p, ballRadius: spec.ballD / 2, spec });
+  assert.equal(same.solutions.length, 0);
 });

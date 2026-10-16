@@ -1,4 +1,11 @@
+const CV_URL = './vendor/opencv.js';
+const CV_FALLBACK_BYTES = 10964323;
+const STALL_MS = 15000;
+const MAX_ATTEMPTS = 3;
+const INIT_TIMEOUT_MS = 30000;
+
 let loadPromise = null;
+let progressCb = null;
 
 function readyCv() {
   const cv = window.cv;
@@ -12,35 +19,129 @@ function readyCv() {
   return cv;
 }
 
-export function loadOpenCV() {
+function emitProgress(p, msg) {
+  if (progressCb) progressCb(p, msg);
+}
+
+const delay = (ms) => new Promise((r) => setTimeout(r, ms));
+
+async function downloadEngine(signal) {
+  const res = await fetch(CV_URL, { signal });
+  if (!res.ok) throw new Error('脚本请求失败 HTTP ' + res.status);
+  const total =
+    Number(res.headers.get('X-Original-Length')) ||
+    Number(res.headers.get('Content-Length')) ||
+    CV_FALLBACK_BYTES;
+  if (!res.body || typeof res.body.getReader !== 'function') {
+    const buf = await res.arrayBuffer();
+    emitProgress(0.9, '');
+    return new Uint8Array(buf);
+  }
+  const reader = res.body.getReader();
+  const chunks = [];
+  let received = 0;
+  for (;;) {
+    let timer;
+    const stall = new Promise((_, rej) => {
+      timer = setTimeout(() => rej(new Error('下载停滞超过 ' + Math.round(STALL_MS / 1000) + ' 秒')), STALL_MS);
+    });
+    let chunk;
+    try {
+      chunk = await Promise.race([reader.read(), stall]);
+    } finally {
+      clearTimeout(timer);
+    }
+    if (chunk.done) break;
+    chunks.push(chunk.value);
+    received += chunk.value.length;
+    if (total > 0) emitProgress(Math.min((received / total) * 0.9, 0.9), '');
+    else emitProgress(-1, (received / 1048576).toFixed(1) + ' MB');
+  }
+  const out = new Uint8Array(received);
+  let off = 0;
+  for (const c of chunks) {
+    out.set(c, off);
+    off += c.length;
+  }
+  return out;
+}
+
+function execEngine(bytes) {
+  return new Promise((resolve, reject) => {
+    let url = '';
+    let s = null;
+    let settled = false;
+    const fail = (err) => {
+      if (settled) return;
+      settled = true;
+      if (s) s.remove();
+      if (url) URL.revokeObjectURL(url);
+      reject(err);
+    };
+    try {
+      window.Module = Object.assign(window.Module || {}, {
+        locateFile: (p) => './vendor/' + p,
+      });
+      url = URL.createObjectURL(new Blob([bytes], { type: 'text/javascript' }));
+      s = document.createElement('script');
+      s.async = true;
+      s.onerror = () => fail(new Error('脚本执行失败'));
+      s.onload = () => {
+        const t0 = Date.now();
+        const poll = () => {
+          if (settled) return;
+          if (window.cv && typeof window.cv.Mat === 'function') {
+            settled = true;
+            s.remove();
+            URL.revokeObjectURL(url);
+            resolve();
+          } else if (Date.now() - t0 > INIT_TIMEOUT_MS) {
+            fail(new Error('初始化超时'));
+          } else {
+            setTimeout(poll, 120);
+          }
+        };
+        poll();
+      };
+      s.src = url;
+      document.head.appendChild(s);
+    } catch (e) {
+      fail(e);
+    }
+  });
+}
+
+export function loadOpenCV(onProgress) {
+  if (onProgress) progressCb = onProgress;
   if (window.cv && typeof window.cv.Mat === 'function') {
+    emitProgress(1, '');
     return Promise.resolve(readyCv());
   }
   if (loadPromise) return loadPromise;
-  loadPromise = new Promise((resolve, reject) => {
-    const s = document.createElement('script');
-    s.src = './vendor/opencv.js';
-    s.async = true;
-    s.onerror = () => {
-      loadPromise = null;
-      reject(new Error('OpenCV 脚本加载失败'));
-    };
-    s.onload = () => {
-      const t0 = Date.now();
-      const poll = () => {
-        if (window.cv && typeof window.cv.Mat === 'function') {
-          resolve(readyCv());
-        } else if (Date.now() - t0 > 30000) {
-          loadPromise = null;
-          reject(new Error('OpenCV 初始化超时'));
-        } else {
-          setTimeout(poll, 120);
+  loadPromise = (async () => {
+    let lastErr = null;
+    for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+      const ac = typeof AbortController === 'function' ? new AbortController() : null;
+      try {
+        emitProgress(0, attempt > 1 ? '自动重试 ' + attempt + '/' + MAX_ATTEMPTS : '');
+        const bytes = await downloadEngine(ac ? ac.signal : undefined);
+        emitProgress(0.92, '解压并初始化…');
+        await execEngine(bytes);
+        emitProgress(1, '');
+        return readyCv();
+      } catch (e) {
+        lastErr = e;
+        if (ac) {
+          try {
+            ac.abort();
+          } catch {}
         }
-      };
-      poll();
-    };
-    document.head.appendChild(s);
-  });
+        if (attempt < MAX_ATTEMPTS) await delay(400 * attempt);
+      }
+    }
+    loadPromise = null;
+    throw lastErr || new Error('引擎加载失败');
+  })();
   return loadPromise;
 }
 

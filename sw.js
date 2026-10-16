@@ -1,4 +1,4 @@
-const CACHE = 'billiards-aim-v34';
+const CACHE = 'billiards-aim-v39';
 const ASSETS = [
   './',
   './index.html',
@@ -9,6 +9,7 @@ const ASSETS = [
   './src/math/linalg.js',
   './src/math/homography.js',
   './src/math/aiming.js',
+  './src/math/kick.js',
   './src/ui/overlay.js',
   './src/ui/magnifier.js',
   './src/ui/calibrator.js',
@@ -24,6 +25,19 @@ const ASSETS = [
   './icons/apple-touch-icon.png',
 ];
 
+function normalizeForStore(res) {
+  if (!res || res.type === 'opaque' || !res.body) return res;
+  const h = new Headers(res.headers);
+  h.delete('Content-Encoding');
+  h.delete('Content-Length');
+  h.delete('Vary');
+  return new Response(res.body, {
+    status: res.status,
+    statusText: res.statusText,
+    headers: h,
+  });
+}
+
 self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE).then((cache) =>
@@ -31,7 +45,7 @@ self.addEventListener('install', (event) => {
         ASSETS.map(async (a) => {
           const res = await fetch(a, { cache: 'reload' });
           if (!res || !res.ok) throw new Error('prefetch ' + a);
-          await cache.put(a, res);
+          await cache.put(a, normalizeForStore(res));
         })
       )
     )
@@ -52,9 +66,10 @@ self.addEventListener('fetch', (event) => {
   const req = event.request;
   if (req.method !== 'GET' || new URL(req.url).origin !== self.location.origin) return;
   const path = new URL(req.url).pathname;
+  const isVendor = path.startsWith('/vendor/');
   const isFresh =
     req.mode === 'navigate' || path === '/' || path.endsWith('/') ||
-    /\.(html|js|css|webmanifest)$/.test(path);
+    (/\.(html|js|css|webmanifest)$/.test(path) && !isVendor);
   event.respondWith(
     (async () => {
       if (!isFresh) {
@@ -64,7 +79,7 @@ self.addEventListener('fetch', (event) => {
       try {
         const res = await fetch(req);
         if (res && res.ok) {
-          const copy = res.clone();
+          const copy = normalizeForStore(res.clone());
           caches.open(CACHE).then((cache) => cache.put(req, copy)).catch(() => {});
         }
         return res;

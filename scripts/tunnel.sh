@@ -1,14 +1,16 @@
 #!/usr/bin/env bash
-# 内网穿透保活脚本：手机 4G 可访问
+# Cloudflare Tunnel 内网穿透保活脚本：手机 4G 可访问（无 60 分钟超时、无拦截页）
 # 用法:
 #   bash scripts/tunnel.sh status   查看当前状态与访问地址
 #   bash scripts/tunnel.sh ensure   确保本地服务+隧道可用，失效自动重建
 #   bash scripts/tunnel.sh loop     常驻保活（每分钟自检，断线自动重建）
 
 PORT=8080
+URL_FILE=/tmp/cf-url
+TUNNEL_LOG=/tmp/cf-tunnel.log
+CF_BIN=/workspace/scripts/cloudflared
+GRAFTCP=/workspace/scripts/graftcp-go
 PROXY=127.0.0.1:18080
-URL_FILE=/tmp/pinggy-url
-SSH_LOG=/tmp/pinggy.log
 
 c() { curl -sf -o /dev/null --max-time "${2:-8}" "$1"; }
 
@@ -21,7 +23,7 @@ ensure_server() {
   pkill -f "http.server $PORT" 2>/dev/null
   pkill -f "scripts/server.py" 2>/dev/null
   sleep 1
-  nohup python3 /workspace/scripts/server.py >/tmp/http.log 2>&1 &
+  setsid python3 /workspace/scripts/server.py >/tmp/http.log 2>&1 < /dev/null &
   sleep 1
   if c "http://localhost:$PORT/" 3; then
     echo "[check] 本地服务 OK  (http://localhost:$PORT)"
@@ -39,18 +41,20 @@ tunnel_ok() {
 }
 
 start_tunnel() {
-  pkill -f "ssh.*a\.pinggy\.io" 2>/dev/null
+  pkill -f "cloudflared tunnel" 2>/dev/null
+  pkill -f "graftcp-go" 2>/dev/null
   sleep 1
-  : > "$SSH_LOG"
-  nohup ssh -p 443 \
-    -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
-    -o ServerAliveInterval=30 -o ServerAliveCountMax=3 -o ExitOnForwardFailure=yes \
-    -o "ProxyCommand=nc -X connect -x $PROXY %h %p" \
-    -R0:localhost:$PORT free@a.pinggy.io >"$SSH_LOG" 2>&1 &
-  for _ in $(seq 1 20); do
+  : > "$TUNNEL_LOG"
+  setsid "$GRAFTCP" \
+    --http_proxy="$PROXY" \
+    --select_proxy_mode=only_http_proxy \
+    --disable-udp \
+    "$CF_BIN" tunnel --url "http://localhost:$PORT" --no-autoupdate --protocol http2 \
+    >"$TUNNEL_LOG" 2>&1 < /dev/null &
+  for _ in $(seq 1 30); do
     sleep 1
     local u
-    u=$(grep -oE 'https://[a-z0-9-]+\.free\.pinggy\.net' "$SSH_LOG" | head -1)
+    u=$(grep -oE 'https://[a-z0-9-]+\.trycloudflare\.com' "$TUNNEL_LOG" | head -1)
     if [ -n "$u" ]; then
       echo "$u" > "$URL_FILE"
       echo "[tunnel] 隧道已重建: $u"
@@ -58,7 +62,7 @@ start_tunnel() {
     fi
   done
   echo "[tunnel] 建立失败，日志尾部："
-  tail -3 "$SSH_LOG"
+  tail -5 "$TUNNEL_LOG"
   return 1
 }
 
@@ -82,13 +86,16 @@ cmd_ensure() {
     start_tunnel || return 1
   fi
   local u; u=$(cur_url)
-  if c "$u/" 12; then
-    echo "[check] 公网可达 OK ($u)"
-    echo "==> 手机/电脑访问: $u"
-  else
-    echo "[check] 公网仍不可达"
-    return 1
-  fi
+  for _ in $(seq 1 6); do
+    if c "$u/" 15; then
+      echo "[check] 公网可达 OK ($u)"
+      echo "==> 手机/电脑访问: $u"
+      return 0
+    fi
+    sleep 3
+  done
+  echo "[check] 公网仍不可达"
+  return 1
 }
 
 cmd_loop() {

@@ -1,6 +1,7 @@
 import { SPECS, getSpec, rotateSpec, worldCorners, pocketWorldPoints } from './specs.js';
 import { computeHomography, applyH, invert3, reprojectionErrors } from './math/homography.js';
 import { computeAim, overlapLabel, difficultyLabel } from './math/aiming.js';
+import { computeKick } from './math/kick.js';
 import { renderOverlay } from './ui/overlay.js';
 import { Magnifier } from './ui/magnifier.js';
 import { Calibrator } from './ui/calibrator.js';
@@ -51,6 +52,16 @@ const els = {
   cutFig: $('cutFig'),
   figToggle: $('figToggle'),
   divSel: $('divSel'),
+  kickRow: $('kickRow'),
+  kickSeg: $('kickSeg'),
+  vKickCut: $('vKickCut'),
+  vKickTravel: $('vKickTravel'),
+  vKickN: $('vKickN'),
+  cvLoad: $('cvLoad'),
+  cvBar: $('cvBar'),
+  cvBarFill: $('cvBarFill'),
+  cvPct: $('cvPct'),
+  cvMsg: $('cvMsg'),
 };
 
 const calibrator = new Calibrator();
@@ -68,6 +79,8 @@ const state = {
   mode: 'empty',
   pocketIdx: -1,
   result: null,
+  kick: null,
+  kickSel: 0,
   divisions: 8,
   refinePts: null,
   rotated: false,
@@ -166,8 +179,12 @@ const makeImageOf = (H) => (q) => {
 
 function recompute() {
   state.result = null;
+  state.kick = null;
   const H = homography();
-  if (!H || state.pocketIdx < 0 || !picker.cue || !picker.target) return;
+  if (!H || state.pocketIdx < 0 || !picker.cue || !picker.target) {
+    state.kickSel = 0;
+    return;
+  }
   const pw = pocketWorldPoints(spec())[state.pocketIdx];
   const f = makeWorldOf(H);
   try {
@@ -179,6 +196,25 @@ function recompute() {
     });
   } catch {
     state.result = null;
+  }
+  if (state.result && !state.result.feasible) {
+    try {
+      state.kick = computeKick({
+        cue: f(picker.cue),
+        target: f(picker.target),
+        pocket: pw,
+        ballRadius: spec().ballD / 2,
+        spec: spec(),
+      });
+    } catch {
+      state.kick = null;
+    }
+    if (state.kick && !state.kick.solutions.length) state.kick = null;
+  }
+  if (state.kick) {
+    if (state.kickSel >= state.kick.solutions.length) state.kickSel = 0;
+  } else {
+    state.kickSel = 0;
   }
   updatePanel(pw);
 }
@@ -197,8 +233,28 @@ function updatePanel(pw) {
   els.vCueT.textContent = (r.cueTravel / 1000).toFixed(2) + ' m';
   els.vTargetT.textContent = (r.targetTravel / 1000).toFixed(2) + ' m';
   els.vPocket.textContent = pw ? pw.name : '—';
-  els.warn.hidden = r.feasible;
-  els.warn.textContent = r.feasible ? '' : '⚠ ' + r.reason;
+  const kick = state.kick;
+  const sol = kick ? kick.solutions[state.kickSel] : null;
+  els.kickRow.hidden = !sol;
+  if (sol) {
+    els.kickSeg.innerHTML = '';
+    kick.solutions.slice(0, 4).forEach((s, i) => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.dataset.v = String(i);
+      b.textContent = s.label;
+      b.classList.toggle('on', i === state.kickSel);
+      els.kickSeg.appendChild(b);
+    });
+    els.vKickCut.textContent = sol.cutDeg.toFixed(1) + '°';
+    els.vKickTravel.textContent = (sol.cueTravel / 1000).toFixed(2) + ' m';
+    els.vKickN.textContent = kick.solutions.length + ' 种';
+    els.warn.hidden = false;
+    els.warn.textContent = '⚠ ' + r.reason + ' → 已自动选用最优解球（' + sol.label + '）';
+  } else {
+    els.warn.hidden = r.feasible;
+    els.warn.textContent = r.feasible ? '' : '⚠ ' + r.reason + '；未找到可行的多库解球路线';
+  }
   drawCutFigure();
 }
 
@@ -277,6 +333,8 @@ function render() {
     pocketWorld:
       state.pocketIdx >= 0 ? pocketWorldPoints(spec())[state.pocketIdx] : null,
     result: state.result,
+    kick: state.kick,
+    kickSel: state.kickSel,
     refine:
       state.mode === 'refine' && state.refinePts
         ? { pts: state.refinePts, residuals: refineResiduals() }
@@ -600,7 +658,9 @@ els.overlayCv.addEventListener('pointerdown', (e) => {
     }
   }
   if (drag) {
-    els.overlayCv.setPointerCapture(e.pointerId);
+    try {
+      els.overlayCv.setPointerCapture(e.pointerId);
+    } catch {}
     showLoupe(
       e,
       drag.kind === 'corner'
@@ -649,6 +709,12 @@ const cancelDrag = () => {
 };
 els.overlayCv.addEventListener('pointerup', endDrag);
 els.overlayCv.addEventListener('pointercancel', cancelDrag);
+window.addEventListener('pointerup', () => {
+  if (drag) endDrag();
+});
+window.addEventListener('pointercancel', () => {
+  if (drag) cancelDrag();
+});
 
 let hintTimer = null;
 function toast(msg) {
@@ -788,6 +854,36 @@ els.fileInput.addEventListener('change', (e) => {
 });
 els.demoBtn.addEventListener('click', () => runDemo(false));
 
+function setCvProgress(p, msg) {
+  if (!els.cvLoad) return;
+  if (p < 0) {
+    els.cvBar.classList.add('indet');
+    els.cvBarFill.style.width = '';
+    els.cvPct.textContent = '…';
+  } else {
+    els.cvBar.classList.remove('indet');
+    const q = Math.max(0, Math.min(1, p));
+    els.cvBarFill.style.width = (q * 100).toFixed(1) + '%';
+    els.cvPct.textContent = Math.round(q * 100) + '%';
+  }
+  els.cvMsg.textContent = msg || '下载中…';
+}
+
+function onCvProgress(p, msg) {
+  if (!els.cvLoad || els.cvLoad.hidden) return;
+  setCvProgress(p, msg);
+}
+
+function showCvLoad() {
+  if (!els.cvLoad) return;
+  els.cvLoad.hidden = false;
+  setCvProgress(0, '准备下载…');
+}
+
+function hideCvLoad() {
+  if (els.cvLoad) els.cvLoad.hidden = true;
+}
+
 let autoBusy = false;
 els.autoBtn.addEventListener('click', async () => {
   if (autoBusy) return;
@@ -797,7 +893,8 @@ els.autoBtn.addEventListener('click', async () => {
   const engineReady = window.cv && typeof window.cv.Mat === 'function';
   if (!engineReady) {
     els.autoBtn.textContent = '⏳ 引擎加载中…';
-    toast('识别引擎首次加载中（约几秒到十几秒），请稍候');
+    toast('识别引擎首次加载中，请稍候');
+    showCvLoad();
   } else {
     els.autoBtn.textContent = '⏳ 识别中…';
   }
@@ -816,6 +913,7 @@ els.autoBtn.addEventListener('click', async () => {
     syncUI();
     toast('自动识别失败：' + (e && e.message ? e.message : '未知错误') + '，请手动拖动绿点');
   } finally {
+    hideCvLoad();
     els.autoBtn.disabled = false;
     els.autoBtn.textContent = label;
     autoBusy = false;
@@ -865,6 +963,7 @@ function captureAR() {
   c.getContext('2d').drawImage(v, 0, 0, c.width, c.height);
   stopAR();
   applyImage(c, c.width, c.height);
+  if (!(window.cv && typeof window.cv.Mat === 'function')) showCvLoad();
   autoDetect()
     .then(() => {
       state.mode = 'balls';
@@ -872,7 +971,8 @@ function captureAR() {
       layout();
       toast('已定格并自动标定，可微调球位后选袋口');
     })
-    .catch(() => toast('已定格，请手动拖动绿点完成标定'));
+    .catch(() => toast('已定格，请手动拖动绿点完成标定'))
+    .finally(() => hideCvLoad());
 }
 
 function cancelAR() {
@@ -900,6 +1000,14 @@ els.divSel.addEventListener('click', (e) => {
     b.classList.toggle('on', b === btn);
   }
   drawCutFigure();
+});
+
+els.kickSeg.addEventListener('click', (e) => {
+  const btn = e.target.closest('button[data-v]');
+  if (!btn) return;
+  state.kickSel = Number(btn.dataset.v) || 0;
+  recompute();
+  render();
 });
 
 async function runDemo(auto) {
@@ -974,7 +1082,9 @@ if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol)) {
 
 const idleLoad = window.requestIdleCallback || ((f) => setTimeout(f, 300));
 idleLoad(() => {
-  loadOpenCV().catch(() => {});
+  if (window.cv && typeof window.cv.Mat === 'function') return;
+  showCvLoad();
+  loadOpenCV(onCvProgress).then(hideCvLoad).catch(() => hideCvLoad());
 });
 
 if (new URLSearchParams(location.search).get('demo')) {

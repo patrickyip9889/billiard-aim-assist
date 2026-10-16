@@ -31,6 +31,7 @@ export function renderOverlay(ctx, env) {
   } else if (env.homography && state.mode !== 'calibrate') {
     drawPockets(env2);
     drawBalls(env2);
+    if (env.kick && env.imageOf) drawKickPath(env2);
   }
   if (state.mode === 'calibrate') drawCornerHandles(env2);
 }
@@ -195,6 +196,38 @@ function drawSnapRing(env, p) {
   const ly = p.y + r + env.cs(8);
   ctx.strokeText('🧲 松手吸附', p.x, ly);
   ctx.fillText('🧲 松手吸附', p.x, ly);
+}
+
+function drawKickPath(env) {
+  const { ctx, lw, dash, cs } = env;
+  const kick = env.kick;
+  const sol = kick.solutions[env.kickSel] || kick.best;
+  if (!sol) return;
+  const imageOf = env.imageOf;
+  const cue = env.state.picker.cue;
+  const ghost = imageOf(kick.ghost);
+  const pts = [cue, ...sol.bounces.map((b) => imageOf(b.point)), ghost];
+  ctx.setLineDash(dash(9));
+  ctx.lineWidth = lw(2.4);
+  ctx.strokeStyle = COLORS.aim;
+  ctx.beginPath();
+  pts.forEach((p, i) => (i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)));
+  ctx.stroke();
+  ctx.setLineDash([]);
+  const gr = projectedRadius(env, imageOf, kick.ghost, env.spec.ballD / 2);
+  ctx.setLineDash(dash(5));
+  ctx.lineWidth = lw(2);
+  ctx.beginPath();
+  ctx.arc(ghost.x, ghost.y, gr, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.setLineDash([]);
+  sol.bounces.forEach((b) => {
+    const p = imageOf(b.point);
+    ctx.fillStyle = COLORS.aim;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, cs(7), 0, Math.PI * 2);
+    ctx.fill();
+  });
 }
 
 function projectedRadius(env, imageOf, centerW, rW) {

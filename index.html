@@ -10,7 +10,6 @@
   <link rel="icon" href="./icons/icon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png">
   <link rel="stylesheet" href="./styles.css">
-  <link rel="preload" href="./vendor/opencv.js" as="script">
   <script type="module" src="./src/main.js"></script>
 </head>
 <body>
@@ -74,6 +73,12 @@
         <div class="cell"><span class="k">母球行程</span><span id="vCueT">—</span></div>
         <div class="cell"><span class="k">目标球行程</span><span id="vTargetT">—</span></div>
       </div>
+      <div id="kickRow" hidden>
+        <div id="kickSeg" class="seg" role="group" aria-label="多库解球方案"></div>
+        <div class="cell"><span class="k">解球角</span><b id="vKickCut">—</b></div>
+        <div class="cell"><span class="k">母球行程</span><span id="vKickTravel">—</span></div>
+        <div class="cell"><span class="k">方案数</span><span id="vKickN">—</span></div>
+      </div>
       <button id="figToggle" type="button">▾ 展开重合法示意</button>
       <div id="cutFig" hidden>
         <div class="figHead">
@@ -99,5 +104,13 @@
 
     <p id="note">🔒 照片仅在本机浏览器内处理，不会上传 · 相机功能需 HTTPS 环境 · 添加到主屏幕可离线使用</p>
   </main>
+
+  <div id="cvLoad" hidden>
+    <div class="cvCard">
+      <div class="cvHead">⚙️ 识别引擎加载中</div>
+      <div class="cvBar" id="cvBar"><i id="cvBarFill"></i></div>
+      <div class="cvMeta"><b id="cvPct">0%</b><span id="cvMsg">准备下载…</span></div>
+    </div>
+  </div>
 </body>
 </html>
