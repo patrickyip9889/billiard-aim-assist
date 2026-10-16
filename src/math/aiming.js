@@ -29,6 +29,7 @@ export function computeAim({ cue, target, pocket, ballRadius }) {
   const cutDeg = (Math.acos(dot) * 180) / Math.PI;
   const overlap = clamp(1 - Math.sin((cutDeg * Math.PI) / 180), 0, 1);
   const feasible = cutDeg < 89.5;
+  const cutSide = ux >= 0 ? 1 : -1;
   return {
     feasible,
     reason: feasible ? null : '切割角达到或超过 90°，几何上无法进球',
@@ -37,6 +38,7 @@ export function computeAim({ cue, target, pocket, ballRadius }) {
     aimDir: { x: vx, y: vy },
     pocketDir: { x: ux, y: uy },
     cutDeg,
+    cutSide,
     overlap,
     cueTravel,
     targetTravel,

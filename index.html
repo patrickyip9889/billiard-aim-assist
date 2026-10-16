@@ -74,7 +74,11 @@
         <div class="cell"><span class="k">目标球行程</span><span id="vTargetT">—</span></div>
       </div>
       <div id="kickRow" hidden>
-        <div id="kickSeg" class="seg" role="group" aria-label="多库解球方案"></div>
+        <div id="solveModeSeg" class="seg" role="group" aria-label="解球模式">
+          <button type="button" data-v="kick" class="on">颗星解球</button>
+          <button type="button" data-v="bank">翻袋解球</button>
+        </div>
+        <div id="kickSeg" class="seg" role="group" aria-label="解球方案"></div>
         <div class="cell"><span class="k">解球角</span><b id="vKickCut">—</b></div>
         <div class="cell"><span class="k">母球行程</span><span id="vKickTravel">—</span></div>
         <div class="cell"><span class="k">方案数</span><span id="vKickN">—</span></div>

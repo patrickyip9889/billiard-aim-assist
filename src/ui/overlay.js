@@ -31,7 +31,11 @@ export function renderOverlay(ctx, env) {
   } else if (env.homography && state.mode !== 'calibrate') {
     drawPockets(env2);
     drawBalls(env2);
-    if (env.kick && env.imageOf) drawKickPath(env2);
+    if (env.solveMode === 'bank' && env.bank && env.imageOf) {
+      drawBankPath(env2);
+    } else if (env.kick && env.imageOf) {
+      drawKickPath(env2);
+    }
   }
   if (state.mode === 'calibrate') drawCornerHandles(env2);
 }
@@ -248,6 +252,40 @@ function drawKickPath(env) {
     ctx.arc(p.x, p.y, cs(2.5), 0, Math.PI * 2);
     ctx.fill();
   });
+}
+
+function drawBankPath(env) {
+  const { ctx, cs } = env;
+  const bank = env.bank;
+  const sol = bank.solutions[env.bankSel] || bank.best;
+  if (!sol) return;
+  const imageOf = env.imageOf;
+  const spec = env.spec;
+  const diamonds = [];
+  for (let k = 1; k <= 7; k++) {
+    const x = (spec.tableL * k) / 8;
+    diamonds.push({ x, y: 0 });
+    diamonds.push({ x, y: spec.tableW });
+  }
+  for (let k = 1; k <= 3; k++) {
+    const y = (spec.tableW * k) / 4;
+    diamonds.push({ x: 0, y });
+    diamonds.push({ x: spec.tableL, y });
+  }
+  diamonds.forEach((d) => {
+    const p = imageOf(d);
+    ctx.fillStyle = COLORS.aim;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, cs(2), 0, Math.PI * 2);
+    ctx.fill();
+  });
+  if (sol.bounces[0]) {
+    const bounce = imageOf(sol.bounces[0].point);
+    ctx.fillStyle = COLORS.warn;
+    ctx.beginPath();
+    ctx.arc(bounce.x, bounce.y, cs(3), 0, Math.PI * 2);
+    ctx.fill();
+  }
 }
 
 function projectedRadius(env, imageOf, centerW, rW) {

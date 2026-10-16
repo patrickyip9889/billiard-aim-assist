@@ -2,6 +2,7 @@ import { SPECS, getSpec, rotateSpec, worldCorners, pocketWorldPoints } from './s
 import { computeHomography, applyH, invert3, reprojectionErrors } from './math/homography.js';
 import { computeAim, overlapLabel, difficultyLabel } from './math/aiming.js';
 import { computeKick } from './math/kick.js';
+import { computeBank } from './math/bank.js';
 import { renderOverlay } from './ui/overlay.js';
 import { Magnifier } from './ui/magnifier.js';
 import { Calibrator } from './ui/calibrator.js';
@@ -53,6 +54,7 @@ const els = {
   figToggle: $('figToggle'),
   divSel: $('divSel'),
   kickRow: $('kickRow'),
+  solveModeSeg: $('solveModeSeg'),
   kickSeg: $('kickSeg'),
   vKickCut: $('vKickCut'),
   vKickTravel: $('vKickTravel'),
@@ -81,6 +83,9 @@ const state = {
   result: null,
   kick: null,
   kickSel: 0,
+  bank: null,
+  bankSel: 0,
+  solveMode: 'kick',
   divisions: 8,
   refinePts: null,
   rotated: false,
@@ -180,9 +185,11 @@ const makeImageOf = (H) => (q) => {
 function recompute() {
   state.result = null;
   state.kick = null;
+  state.bank = null;
   const H = homography();
   if (!H || state.pocketIdx < 0 || !picker.cue || !picker.target) {
     state.kickSel = 0;
+    state.bankSel = 0;
     return;
   }
   const pw = pocketWorldPoints(spec())[state.pocketIdx];
@@ -210,11 +217,28 @@ function recompute() {
       state.kick = null;
     }
     if (state.kick && !state.kick.solutions.length) state.kick = null;
+    try {
+      state.bank = computeBank({
+        cue: f(picker.cue),
+        target: f(picker.target),
+        pocket: pw,
+        ballRadius: spec().ballD / 2,
+        spec: spec(),
+      });
+    } catch {
+      state.bank = null;
+    }
+    if (state.bank && !state.bank.solutions.length) state.bank = null;
   }
   if (state.kick) {
     if (state.kickSel >= state.kick.solutions.length) state.kickSel = 0;
   } else {
     state.kickSel = 0;
+  }
+  if (state.bank) {
+    if (state.bankSel >= state.bank.solutions.length) state.bankSel = 0;
+  } else {
+    state.bankSel = 0;
   }
   updatePanel(pw);
 }
@@ -226,41 +250,80 @@ function updatePanel(pw) {
     return;
   }
   els.panel.hidden = false;
-  els.vCut.textContent = r.cutDeg.toFixed(1) + '°';
-  els.vOverlap.textContent = Math.round(r.overlap * 100) + '%';
-  els.vStyle.textContent = overlapLabel(r.overlap, r.cutDeg);
+  const infeasible = r && !r.feasible;
+  let dispCut = r.cutDeg;
+  let dispOverlap = r.overlap;
+  if (infeasible && state.solveMode === 'bank' && state.bank) {
+    const sol = state.bank.solutions[state.bankSel] || state.bank.best;
+    if (sol) {
+      dispCut = sol.cutDeg;
+      dispOverlap = Math.min(1, Math.max(0, 1 - Math.sin((sol.cutDeg * Math.PI) / 180)));
+    }
+  }
+  els.vCut.textContent = dispCut.toFixed(1) + '°';
+  els.vOverlap.textContent = Math.round(dispOverlap * 100) + '%';
+  els.vStyle.textContent = overlapLabel(dispOverlap, dispCut);
   els.vDiff.textContent = r.feasible ? difficultyLabel(r.cutDeg) : '—';
   els.vCueT.textContent = (r.cueTravel / 1000).toFixed(2) + ' m';
   els.vTargetT.textContent = (r.targetTravel / 1000).toFixed(2) + ' m';
   els.vPocket.textContent = pw ? pw.name : '—';
-  const kick = state.kick;
-  const sol = kick ? kick.solutions[state.kickSel] : null;
-  els.kickRow.hidden = !sol;
-  if (sol) {
+  const hasKick = state.kick && state.kick.solutions.length;
+  const hasBank = state.bank && state.bank.solutions.length;
+  const showSolveRow = infeasible && (hasKick || hasBank);
+  els.kickRow.hidden = !showSolveRow;
+  if (showSolveRow) {
+    if (state.solveMode === 'bank' && !hasBank) state.solveMode = 'kick';
+    if (state.solveMode === 'kick' && !hasKick) state.solveMode = 'bank';
+    const mode = state.solveMode;
+    const data = mode === 'bank' ? state.bank : state.kick;
+    const sel = mode === 'bank' ? state.bankSel : state.kickSel;
+    const sol = data.solutions[sel];
+    els.solveModeSeg.querySelectorAll('button').forEach((b) => {
+      const v = b.dataset.v;
+      b.classList.toggle('on', v === mode);
+      b.disabled = v === 'kick' ? !hasKick : !hasBank;
+    });
     els.kickSeg.innerHTML = '';
-    kick.solutions.slice(0, 4).forEach((s, i) => {
+    data.solutions.slice(0, 6).forEach((s, i) => {
       const b = document.createElement('button');
       b.type = 'button';
       b.dataset.v = String(i);
       b.textContent = s.label;
-      b.classList.toggle('on', i === state.kickSel);
+      b.classList.toggle('on', i === sel);
       els.kickSeg.appendChild(b);
     });
     els.vKickCut.textContent = sol.cutDeg.toFixed(1) + '°';
     els.vKickTravel.textContent = (sol.cueTravel / 1000).toFixed(2) + ' m';
-    els.vKickN.textContent = kick.solutions.length + ' 种';
+    els.vKickN.textContent = data.solutions.length + ' 种';
     els.warn.hidden = false;
-    els.warn.textContent = '⚠ ' + r.reason + ' → 已自动选用最优解球（' + sol.label + '）';
+    els.warn.textContent =
+      '⚠ ' + r.reason + ' → 已选用' + (mode === 'bank' ? '翻袋' : '多库') + '解球（' + sol.label + '）';
+  } else if (!infeasible) {
+    els.warn.hidden = true;
+    els.warn.textContent = '';
   } else {
-    els.warn.hidden = r.feasible;
-    els.warn.textContent = r.feasible ? '' : '⚠ ' + r.reason + '；未找到可行的多库解球路线';
+    els.warn.hidden = false;
+    els.warn.textContent = '⚠ ' + r.reason + '；未找到可行的解球路线';
   }
   drawCutFigure();
 }
 
 function drawCutFigure() {
   if (els.panel.hidden || els.cutFig.hidden || !state.result) return;
-  drawCutDiagram(els.cutCv, state.result, state.divisions);
+  let figResult = state.result;
+  if (!state.result.feasible && state.solveMode === 'bank' && state.bank) {
+    const sol = state.bank.solutions[state.bankSel] || state.bank.best;
+    if (sol) {
+      figResult = {
+        cutDeg: sol.cutDeg,
+        cutSide: sol.cutSide || 1,
+        feasible: true,
+        ghost: sol.ghost,
+        overlap: Math.min(1, Math.max(0, 1 - Math.sin((sol.cutDeg * Math.PI) / 180))),
+      };
+    }
+  }
+  drawCutDiagram(els.cutCv, figResult, state.divisions);
 }
 
 function syncUI() {
@@ -335,6 +398,9 @@ function render() {
     result: state.result,
     kick: state.kick,
     kickSel: state.kickSel,
+    bank: state.bank,
+    bankSel: state.bankSel,
+    solveMode: state.solveMode,
     refine:
       state.mode === 'refine' && state.refinePts
         ? { pts: state.refinePts, residuals: refineResiduals() }
@@ -1002,10 +1068,20 @@ els.divSel.addEventListener('click', (e) => {
   drawCutFigure();
 });
 
+els.solveModeSeg.addEventListener('click', (e) => {
+  const btn = e.target.closest('button[data-v]');
+  if (!btn || btn.disabled) return;
+  state.solveMode = btn.dataset.v;
+  recompute();
+  render();
+});
+
 els.kickSeg.addEventListener('click', (e) => {
   const btn = e.target.closest('button[data-v]');
   if (!btn) return;
-  state.kickSel = Number(btn.dataset.v) || 0;
+  const idx = Number(btn.dataset.v) || 0;
+  if (state.solveMode === 'bank') state.bankSel = idx;
+  else state.kickSel = idx;
   recompute();
   render();
 });

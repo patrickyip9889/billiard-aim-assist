@@ -35,17 +35,20 @@ export function drawCutDiagram(cv, result, divisions = 0) {
 
   const sinT = Math.sin(th * RAD);
   const topPad = 30;
-  const R = Math.max(8, Math.min((cssH - topPad - 62) / 2, (cssW - 18) / (2 + 2 * sinT)));
-  const spanW = 2 * R * (1 + sinT);
-  const left = (cssW - spanW) / 2;
+  const side = result.cutSide || 1;
+  const R = Math.max(8, Math.min((cssH - topPad - 62) / 2, (cssW / 2 - 9) / (1 + 2 * sinT)));
   const cy = topPad + R;
-  const Cx = left + R;
-  const Tx = Cx + 2 * R * sinT;
-  const xv = Cx + R;
+  const Tx = cssW / 2;
+  const offset = 2 * R * sinT;
+  const Cx = Tx - side * offset;
+  const xv = side > 0 ? Cx + R : Cx - R;
+  const cueNear = xv;
+  const targetNear = side > 0 ? Tx - R : Tx + R;
+  const targetFar = side > 0 ? Tx + R : Tx - R;
   const yTop = 24;
   const yBot = cy + R + 8;
 
-  const grad = ctx.createRadialGradient(Tx - R * 0.35, cy - R * 0.35, R * 0.15, Tx, cy, R);
+  const grad = ctx.createRadialGradient(Tx - side * R * 0.35, cy - R * 0.35, R * 0.15, Tx, cy, R);
   grad.addColorStop(0, COL.objHi);
   grad.addColorStop(1, COL.objLo);
   ctx.fillStyle = grad;
@@ -120,15 +123,15 @@ export function drawCutDiagram(cv, result, divisions = 0) {
   ctx.lineWidth = 1.2;
   ctx.strokeStyle = COL.d1;
   ctx.setLineDash([4, 3]);
-  measureLine(ctx, xv, y1, Tx + R, y1);
+  measureLine(ctx, Math.min(cueNear, targetFar), y1, Math.max(cueNear, targetFar), y1);
   ctx.strokeStyle = COL.d2;
-  measureLine(ctx, Tx - R, y2, xv, y2);
+  measureLine(ctx, Math.min(targetNear, cueNear), y2, Math.max(targetNear, cueNear), y2);
   ctx.setLineDash([]);
   ctx.strokeStyle = COL.label;
-  tick(ctx, Tx - R, y2);
-  tick(ctx, xv, y1);
-  tick(ctx, xv, y2);
-  tick(ctx, Tx + R, y1);
+  tick(ctx, targetNear, y2);
+  tick(ctx, cueNear, y1);
+  tick(ctx, cueNear, y2);
+  tick(ctx, targetFar, y1);
 
   ctx.font = 'bold 10px system-ui, sans-serif';
   ctx.textBaseline = 'middle';
@@ -136,9 +139,9 @@ export function drawCutDiagram(cv, result, divisions = 0) {
   const t2 = `d2 ${d2v.toFixed(2)}R`;
   ctx.fillStyle = COL.d1;
   ctx.textAlign = 'center';
-  ctx.fillText(t1, clampTextX(ctx, (xv + Tx + R) / 2, t1, cssW), y1 - 9);
+  ctx.fillText(t1, clampTextX(ctx, (cueNear + targetFar) / 2, t1, cssW), y1 - 9);
   ctx.fillStyle = COL.d2;
-  ctx.fillText(t2, clampTextX(ctx, (Tx - R + xv) / 2, t2, cssW), y2 + 11);
+  ctx.fillText(t2, clampTextX(ctx, (targetNear + cueNear) / 2, t2, cssW), y2 + 11);
 
   const label = (ok ? 'θ ' : '⚠ ') + th.toFixed(1) + '°';
   ctx.font = 'bold 11px system-ui, sans-serif';
