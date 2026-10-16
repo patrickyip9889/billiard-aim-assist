@@ -205,27 +205,47 @@ function drawKickPath(env) {
   if (!sol) return;
   const imageOf = env.imageOf;
   const cue = env.state.picker.cue;
+  const spec = env.spec;
+  const diamonds = [];
+  for (let k = 1; k <= 7; k++) {
+    const x = (spec.tableL * k) / 8;
+    diamonds.push({ x, y: 0 });
+    diamonds.push({ x, y: spec.tableW });
+  }
+  for (let k = 1; k <= 3; k++) {
+    const y = (spec.tableW * k) / 4;
+    diamonds.push({ x: 0, y });
+    diamonds.push({ x: spec.tableL, y });
+  }
+  diamonds.forEach((d) => {
+    const p = imageOf(d);
+    ctx.fillStyle = COLORS.aim;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, cs(2), 0, Math.PI * 2);
+    ctx.fill();
+  });
   const ghost = imageOf(kick.ghost);
   const pts = [cue, ...sol.bounces.map((b) => imageOf(b.point)), ghost];
-  ctx.setLineDash(dash(9));
+  ctx.setLineDash([]);
   ctx.lineWidth = lw(2.4);
-  ctx.strokeStyle = COLORS.aim;
+  ctx.strokeStyle = COLORS.warn;
   ctx.beginPath();
   pts.forEach((p, i) => (i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)));
   ctx.stroke();
   ctx.setLineDash([]);
   const gr = projectedRadius(env, imageOf, kick.ghost, env.spec.ballD / 2);
-  ctx.setLineDash(dash(5));
+  ctx.setLineDash([]);
   ctx.lineWidth = lw(2);
+  ctx.strokeStyle = COLORS.warn;
   ctx.beginPath();
   ctx.arc(ghost.x, ghost.y, gr, 0, Math.PI * 2);
   ctx.stroke();
   ctx.setLineDash([]);
   sol.bounces.forEach((b) => {
     const p = imageOf(b.point);
-    ctx.fillStyle = COLORS.aim;
+    ctx.fillStyle = COLORS.warn;
     ctx.beginPath();
-    ctx.arc(p.x, p.y, cs(7), 0, Math.PI * 2);
+    ctx.arc(p.x, p.y, cs(2.5), 0, Math.PI * 2);
     ctx.fill();
   });
 }
