@@ -8,6 +8,7 @@ export const SPECS = [
     cornerPocketOut: 40,
     sidePocketOut: 26,
     pocketR: 62,
+    cushion: 55,
   },
   {
     key: 'snooker',
@@ -18,6 +19,7 @@ export const SPECS = [
     cornerPocketOut: 42,
     sidePocketOut: 24,
     pocketR: 60,
+    cushion: 52,
   },
 ];
 
@@ -49,20 +51,20 @@ export function pocketWorldPoints(spec) {
   const dc = co / Math.SQRT2;
   if (spec.rotated) {
     return [
-      { x: -dc, y: -dc, name: '左上角袋' },
-      { x: L + dc, y: -dc, name: '右上角袋' },
-      { x: L + so, y: W / 2, name: '右中袋' },
-      { x: L + dc, y: W + dc, name: '右下角袋' },
-      { x: -dc, y: W + dc, name: '左下角袋' },
-      { x: -so, y: W / 2, name: '左中袋' },
+      { x: -dc, y: -dc, name: '1号袋' },
+      { x: L + dc, y: -dc, name: '2号袋' },
+      { x: L + so, y: W / 2, name: '3号袋' },
+      { x: L + dc, y: W + dc, name: '4号袋' },
+      { x: -dc, y: W + dc, name: '5号袋' },
+      { x: -so, y: W / 2, name: '6号袋' },
     ];
   }
   return [
-    { x: -dc, y: -dc, name: '左上角袋' },
-    { x: L / 2, y: -so, name: '上中袋' },
-    { x: L + dc, y: -dc, name: '右上角袋' },
-    { x: L + dc, y: W + dc, name: '右下角袋' },
-    { x: L / 2, y: W + so, name: '下中袋' },
-    { x: -dc, y: W + dc, name: '左下角袋' },
+    { x: -dc, y: -dc, name: '1号袋' },
+    { x: L / 2, y: -so, name: '2号袋' },
+    { x: L + dc, y: -dc, name: '3号袋' },
+    { x: L + dc, y: W + dc, name: '4号袋' },
+    { x: L / 2, y: W + so, name: '5号袋' },
+    { x: -dc, y: W + dc, name: '6号袋' },
   ];
 }

@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<title>袋口精化标定指南</title>
+<style>
+  body{margin:0;background:#0d1117;color:#e6edf3;font-family:system-ui,sans-serif;padding:24px;}
+  h1{font-size:20px;margin:0 0 8px;}
+  .sub{color:#9aa4af;font-size:13px;margin-bottom:20px;}
+  .wrap{display:flex;gap:20px;flex-wrap:wrap;}
+  .card{background:#161b22;border:1px solid #30363d;border-radius:10px;padding:16px;}
+  .legend{font-size:13px;line-height:1.9;}
+  .dot{display:inline-block;width:12px;height:12px;border-radius:50%;vertical-align:middle;margin-right:6px;}
+  .spec{font-family:monospace;background:#0d1117;padding:2px 6px;border-radius:4px;}
+  .tip{background:#1c2128;border-left:3px solid #58a6ff;padding:10px 14px;border-radius:6px;margin-top:12px;font-size:13px;line-height:1.7;}
+  .num{color:#58a6ff;font-weight:bold;}
+</style>
+</head>
+<body>
+<h1>🎯 袋口精化 — 中心点该放在哪里？</h1>
+<div class="sub">标定的目标是让 6 个袋口点的「世界坐标」与球台标准尺寸一致。拖动中心点时，按以下规则放置。</div>
+
+<div class="wrap">
+  <div class="card">
+    <svg width="560" height="340" viewBox="0 0 560 340">
+      <!-- 台面外框（库边内沿）-->
+      <rect x="80" y="50" width="400" height="240" fill="#0d2818" stroke="#3fb950" stroke-width="2" rx="2"/>
+      <!-- 库边 -->
+      <rect x="60" y="30" width="440" height="280" fill="none" stroke="#8b5a2b" stroke-width="3" rx="4"/>
+      <!-- 角袋开口示意 -->
+      <path d="M60 30 L80 50 M500 30 L480 50 M500 310 L480 290 M60 310 L80 290" stroke="#8b5a2b" stroke-width="3" fill="none"/>
+      <!-- 中袋开口 -->
+      <path d="M280 30 L280 50 M280 310 L280 290" stroke="#8b5a2b" stroke-width="3"/>
+      <!-- 台面四角 -->
+      <circle cx="80" cy="50" r="4" fill="#3fb950"/>
+      <circle cx="480" cy="50" r="4" fill="#3fb950"/>
+      <circle cx="480" cy="290" r="4" fill="#3fb950"/>
+      <circle cx="80" cy="290" r="4" fill="#3fb950"/>
+
+      <!-- 角袋中心点（对角向外 40mm）-->
+      <circle cx="52" cy="22" r="9" fill="none" stroke="#ff5252" stroke-width="2"/>
+      <circle cx="52" cy="22" r="4" fill="#ff5252"/>
+      <text x="20" y="14" fill="#ff5252" font-size="12">①</text>
+
+      <circle cx="508" cy="22" r="9" fill="none" stroke="#ff5252" stroke-width="2"/>
+      <circle cx="508" cy="22" r="4" fill="#ff5252"/>
+      <text x="518" y="14" fill="#ff5252" font-size="12">②</text>
+
+      <circle cx="508" cy="318" r="9" fill="none" stroke="#ff5252" stroke-width="2"/>
+      <circle cx="508" cy="318" r="4" fill="#ff5252"/>
+      <text x="518" y="332" fill="#ff5252" font-size="12">③</text>
+
+      <circle cx="52" cy="318" r="9" fill="none" stroke="#ff5252" stroke-width="2"/>
+      <circle cx="52" cy="318" r="4" fill="#ff5252"/>
+      <text x="20" y="332" fill="#ff5252" font-size="12">⑥</text>
+
+      <!-- 中袋中心点（向外 26mm）-->
+      <circle cx="280" cy="8" r="9" fill="none" stroke="#ffd54a" stroke-width="2"/>
+      <circle cx="280" cy="8" r="4" fill="#ffd54a"/>
+      <text x="290" y="12" fill="#ffd54a" font-size="12">④</text>
+
+      <circle cx="280" cy="332" r="9" fill="none" stroke="#ffd54a" stroke-width="2"/>
+      <circle cx="280" cy="332" r="4" fill="#ffd54a"/>
+      <text x="290" y="336" fill="#ffd54a" font-size="12">⑤</text>
+
+      <!-- 辅助线：角袋对角 -->
+      <line x1="80" y1="50" x2="52" y2="22" stroke="#ff5252" stroke-width="1" stroke-dasharray="3,3" opacity="0.5"/>
+      <line x1="480" y1="50" x2="508" y2="22" stroke="#ff5252" stroke-width="1" stroke-dasharray="3,3" opacity="0.5"/>
+      <line x1="480" y1="290" x2="508" y2="318" stroke="#ff5252" stroke-width="1" stroke-dasharray="3,3" opacity="0.5"/>
+      <line x1="80" y1="290" x2="52" y2="318" stroke="#ff5252" stroke-width="1" stroke-dasharray="3,3" opacity="0.5"/>
+      <!-- 辅助线：中袋垂直 -->
+      <line x1="280" y1="50" x2="280" y2="8" stroke="#ffd54a" stroke-width="1" stroke-dasharray="3,3" opacity="0.5"/>
+      <line x1="280" y1="290" x2="280" y2="332" stroke="#ffd54a" stroke-width="1" stroke-dasharray="3,3" opacity="0.5"/>
+
+      <!-- 标注 -->
+      <text x="30" y="70" fill="#9aa4af" font-size="11" transform="rotate(-45 30 70)">对角 40mm</text>
+      <text x="288" y="32" fill="#9aa4af" font-size="11">26mm</text>
+
+      <text x="200" y="170" fill="#3fb950" font-size="11" text-anchor="middle">台面内沿（绿色框四角 = 标定角点）</text>
+    </svg>
+  </div>
+
+  <div class="card legend" style="width:320px;">
+    <div style="font-weight:600;margin-bottom:8px;">📍 6 个袋口点的位置规则</div>
+
+    <div style="margin-bottom:10px;">
+      <span class="dot" style="background:#ff5252;"></span>
+      <b>角袋 ①②③⑥</b>（4 个）<br>
+      放在台面角点的 <span class="num">45° 对角向外</span> 方向。<br>
+      距角点距离 = <span class="spec">cornerPocketOut</span> = <b>40mm</b>（中式八球）/ 42mm（斯诺克）<br>
+      即：角袋口两个库边尖端连线的 <b>中点</b>。
+    </div>
+
+    <div style="margin-bottom:10px;">
+      <span class="dot" style="background:#ffd54a;"></span>
+      <b>中袋 ④⑤</b>（2 个）<br>
+      放在长边中点的 <span class="num">垂直向外</span> 方向。<br>
+      距库边距离 = <span class="spec">sidePocketOut</span> = <b>26mm</b>（中式八球）/ 24mm（斯诺克）<br>
+      即：中袋口两个库边尖端连线的 <b>中点</b>。
+    </div>
+
+    <div class="tip">
+      <b>💡 关键原则</b><br>
+      中心点 = 袋口 <b>两个库边尖端（虎口）连线的中点</b>，不是袋口最深的凹陷处，也不是洞口的视觉中心。<br><br>
+      角袋：沿 45° 方向向外量一个球径不到的距离（40mm）。<br>
+      中袋：垂直库边向外量 26mm。<br><br>
+      球径 57mm，所以 40mm ≈ 0.7 个球径，26mm ≈ 0.45 个球径。
+    </div>
+  </div>
+</div>
+
+<div class="card" style="margin-top:16px;">
+  <div style="font-weight:600;margin-bottom:10px;">✅ 自检方法</div>
+  <div style="font-size:13px;line-height:1.9;color:#9aa4af;">
+    精化时每个点下方显示的数字是 <b>残差(mm)</b>——即该点映射到世界坐标后与标准袋口位置的偏差。<br>
+    • 残差 <span class="num">< 15mm</span>：很好，可直接点「完成精化」<br>
+    • 残差 <span class="num">15~30mm</span>：可接受，瞄准误差很小<br>
+    • 残差 <span class="num">> 30mm</span>：需微调该点位置<br><br>
+    拖动点时，<b>让 6 个残差尽量同时最小</b>，而非只盯一个点。因为 4 个角点 + 2 个中点共同决定透视变换，某一个点偏了会影响整体。
+  </div>
+</div>
+
+</body>
+</html>

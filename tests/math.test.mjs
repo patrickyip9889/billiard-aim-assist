@@ -145,7 +145,12 @@ test('旋转规格：长宽互换，中袋位于左右长边中点且外移', ()
   assert.equal(pts.length, 6);
   assert.ok(close(pts[2].y, s.tableW / 2) && close(pts[5].y, s.tableW / 2));
   assert.ok(pts[2].x > s.tableL && pts[5].x < 0);
-  assert.equal(pocketWorldPoints(base).find((p) => p.name === '上中袋').y, -base.sidePocketOut);
+  assert.equal(pocketWorldPoints(base)[1].y, -base.sidePocketOut);
+  assert.equal(pocketWorldPoints(base)[1].name, '2号袋');
+  assert.deepEqual(
+    pocketWorldPoints(base).map((p) => p.name),
+    ['1号袋', '2号袋', '3号袋', '4号袋', '5号袋', '6号袋']
+  );
 });
 
 test('端到端：竖拍（旋转规格）单应性恢复瞄准真值', () => {

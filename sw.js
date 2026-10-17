@@ -1,4 +1,4 @@
-const CACHE = 'billiards-aim-v39';
+const CACHE = 'billiards-aim-v43';
 const ASSETS = [
   './',
   './index.html',

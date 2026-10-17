@@ -196,8 +196,13 @@ export async function detectTable(canvas) {
         const fill = bestA / (src.rows * src.cols);
         if (best >= 0 && fill >= 0.1) {
           const bc = contours.get(best);
-          result = { corners: contourToQuad(cv, bc), fill, adapted: stage > 0 };
+          const quad = contourToQuad(cv, bc, mask);
           bc.delete();
+          let refined = quad;
+          try {
+            refined = refineQuadSubpix(cv, src, quad);
+          } catch {}
+          result = { corners: refined, fill, adapted: stage > 0 };
         }
       } finally {
         lo.delete();
@@ -380,6 +385,8 @@ export function detectPockets(source, predictPts, ballR) {
           thr = t;
         }
       }
+      const sig = Math.max(2, br * 1.1);
+      const inv2s2 = 1 / (2 * sig * sig);
       let sx = 0;
       let sy = 0;
       let sw = 0;
@@ -387,18 +394,19 @@ export function detectPockets(source, predictPts, ballR) {
       let idx = 0;
       for (let y = y0; y <= y1; y++) {
         for (let x = x0; x <= x1; x++) {
-          const wgt = thr - lums[idx++];
-          if (wgt > 0) {
+          const dk = thr - lums[idx++];
+          if (dk > 0) {
             dark++;
+            const wgt = dk * Math.exp(-((x - cx) ** 2 + (y - cy) ** 2) * inv2s2);
             sx += wgt * x;
             sy += wgt * y;
             sw += wgt;
           }
         }
       }
-      if (sw > 0 && dark >= Math.max(8, 0.35 * Math.PI * br * br)) {
+      if (sw > 0 && dark >= Math.max(8, 0.3 * Math.PI * br * br)) {
         p = { x: sx / sw / k, y: sy / sw / k };
-        if (Math.hypot(p.x - predictPts[i].x, p.y - predictPts[i].y) > ballR[i] * 2.2) p = null;
+        if (Math.hypot(p.x - predictPts[i].x, p.y - predictPts[i].y) > ballR[i] * 1.9) p = null;
       }
     }
     if (!p) ok = false;
@@ -407,27 +415,233 @@ export function detectPockets(source, predictPts, ballR) {
   return { pts, ok };
 }
 
-function contourToQuad(cv, contour) {
-  const peri = cv.arcLength(contour, true);
-  const approx = new cv.Mat();
+function contourToQuad(cv, contour, mask) {
+  const hull = new cv.Mat();
   let pts = null;
+  let dense = null;
+  const denseVec = new cv.MatVector();
+  const hier = new cv.Mat();
   try {
-    for (const eps of [0.02, 0.035, 0.05, 0.08]) {
-      cv.approxPolyDP(contour, approx, eps * peri, true);
-      if (approx.rows === 4) break;
+    cv.convexHull(contour, hull, false, true);
+    const hullPts = [];
+    for (let i = 0; i < hull.rows; i++) {
+      hullPts.push({ x: hull.data32S[i * 2], y: hull.data32S[i * 2 + 1] });
     }
-    if (approx.rows === 4) {
-      pts = [];
-      for (let i = 0; i < 4; i++) {
-        pts.push({ x: approx.data32S[i * 2], y: approx.data32S[i * 2 + 1] });
+    let cPts = [];
+    if (mask) {
+      cv.findContours(mask, denseVec, hier, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_NONE);
+      let bi = -1;
+      let ba = 0;
+      for (let i = 0; i < denseVec.size(); i++) {
+        const a = cv.contourArea(denseVec.get(i));
+        if (a > ba) {
+          ba = a;
+          bi = i;
+        }
       }
-    } else {
-      pts = rectCorners(cv.minAreaRect(contour));
+      if (bi >= 0) {
+        dense = denseVec.get(bi);
+        for (let i = 0; i < dense.rows; i++) {
+          cPts.push({ x: dense.data32S[i * 2], y: dense.data32S[i * 2 + 1] });
+        }
+      }
+    }
+    if (!cPts.length) {
+      for (let i = 0; i < contour.rows; i++) {
+        cPts.push({ x: contour.data32S[i * 2], y: contour.data32S[i * 2 + 1] });
+      }
+    }
+    const peri = cv.arcLength(hull, true);
+    const approx = new cv.Mat();
+    try {
+      for (const eps of [0.01, 0.015, 0.02, 0.03, 0.045, 0.06]) {
+        cv.approxPolyDP(hull, approx, eps * peri, true);
+        if (approx.rows === 4) break;
+      }
+      if (approx.rows === 4) {
+        pts = [];
+        for (let i = 0; i < 4; i++) {
+          pts.push({ x: approx.data32S[i * 2], y: approx.data32S[i * 2 + 1] });
+        }
+      }
+    } finally {
+      approx.delete();
+    }
+    if (!pts || quadDegenerate(pts)) pts = extremeQuad(hull);
+    if (pts && !quadDegenerate(pts)) {
+      const refined = lineRefinedQuad(hullPts, cPts, pts, peri);
+      if (refined && !quadDegenerate(refined)) pts = refined;
     }
   } finally {
-    approx.delete();
+    if (dense) dense.delete();
+    denseVec.delete();
+    hier.delete();
+    hull.delete();
   }
+  if (!pts || quadDegenerate(pts)) pts = rectCorners(cv.minAreaRect(contour));
   return orderQuad(pts);
+}
+
+function quadArea(q) {
+  let s = 0;
+  for (let i = 0; i < 4; i++) {
+    const a = q[i];
+    const b = q[(i + 1) % 4];
+    s += a.x * b.y - b.x * a.y;
+  }
+  return Math.abs(s) / 2;
+}
+
+function lineRefinedQuad(hullPts, contourPts, quad0, peri) {
+  const all = hullPts.concat(contourPts);
+  if (all.length < 16) return null;
+  const maxPull = Math.max(peri * 0.08, 40);
+  const maxAssign = Math.max(8, peri * 0.03);
+  let lines = [0, 1, 2, 3].map((e) => {
+    const a = quad0[e];
+    const b = quad0[(e + 1) % 4];
+    const dx = b.x - a.x;
+    const dy = b.y - a.y;
+    const len = Math.hypot(dx, dy) || 1;
+    const nx = -dy / len;
+    const ny = dx / len;
+    return { a: nx, b: ny, c: nx * a.x + ny * a.y };
+  });
+  for (let iter = 0; iter < 3; iter++) {
+    const assign = [[], [], [], []];
+    for (const p of all) {
+      let bi = -1;
+      let bd = Infinity;
+      for (let e = 0; e < 4; e++) {
+        const d = Math.abs(lines[e].a * p.x + lines[e].b * p.y - lines[e].c);
+        if (d < bd) {
+          bd = d;
+          bi = e;
+        }
+      }
+      if (bd <= maxAssign) assign[bi].push(p);
+    }
+    const next = [];
+    for (let e = 0; e < 4; e++) {
+      if (assign[e].length < 30) return null;
+      const l0 = fitLineTLS(assign[e]);
+      const res = assign[e].map((p) => Math.abs(l0.a * p.x + l0.b * p.y - l0.c));
+      const sorted = [...res].sort((x, y) => x - y);
+      const med = sorted[Math.floor(sorted.length / 2)];
+      const keep = assign[e].filter((_, i) => res[i] <= Math.max(2, med * 2.5));
+      if (keep.length < 30) return null;
+      next.push(fitLineTLS(keep));
+    }
+    lines = next;
+  }
+  const corners = [];
+  for (let i = 0; i < 4; i++) {
+    const hit = lineIntersect(lines[(i + 3) % 4], lines[i]);
+    if (!hit) return null;
+    if (Math.hypot(hit.x - quad0[i].x, hit.y - quad0[i].y) > maxPull) return null;
+    corners.push(hit);
+  }
+  const a0 = quadArea(quad0);
+  const a1 = quadArea(corners);
+  if (a0 > 1 && (a1 < a0 * 0.5 || a1 > a0 * 2)) return null;
+  return corners;
+}
+
+function fitLineTLS(pts) {
+  let mx = 0;
+  let my = 0;
+  for (const p of pts) {
+    mx += p.x;
+    my += p.y;
+  }
+  mx /= pts.length;
+  my /= pts.length;
+  let sxx = 0;
+  let syy = 0;
+  let sxy = 0;
+  for (const p of pts) {
+    const dx = p.x - mx;
+    const dy = p.y - my;
+    sxx += dx * dx;
+    syy += dy * dy;
+    sxy += dx * dy;
+  }
+  const th = 0.5 * Math.atan2(2 * sxy, sxx - syy);
+  const dx = Math.cos(th);
+  const dy = Math.sin(th);
+  return { a: -dy, b: dx, c: -dy * mx + dx * my };
+}
+
+function lineIntersect(L1, L2) {
+  const det = L1.a * L2.b - L2.a * L1.b;
+  if (Math.abs(det) < 1e-9) return null;
+  return {
+    x: (L1.c * L2.b - L2.c * L1.b) / det,
+    y: (L1.a * L2.c - L2.a * L1.c) / det,
+  };
+}
+
+function quadDegenerate(pts) {
+  for (let i = 0; i < 4; i++) {
+    const q = pts[(i + 1) % 4];
+    if (Math.hypot(pts[i].x - q.x, pts[i].y - q.y) < 8) return true;
+  }
+  return false;
+}
+
+function extremeQuad(hullMat) {
+  let a = null;
+  let b = null;
+  let c = null;
+  let d = null;
+  let sa = Infinity;
+  let sb = -Infinity;
+  let sc = -Infinity;
+  let sd = Infinity;
+  for (let i = 0; i < hullMat.rows; i++) {
+    const x = hullMat.data32S[i * 2];
+    const y = hullMat.data32S[i * 2 + 1];
+    const s1 = x + y;
+    const s2 = x - y;
+    if (s1 < sa) { sa = s1; a = { x, y }; }
+    if (s2 > sb) { sb = s2; b = { x, y }; }
+    if (s1 > sc) { sc = s1; c = { x, y }; }
+    if (s2 < sd) { sd = s2; d = { x, y }; }
+  }
+  return [a, b, c, d];
+}
+
+export function refineQuadSubpix(cv, src, quad) {
+  const gray = new cv.Mat();
+  const mat = cv.matFromArray(4, 1, cv.CV_32FC2, quad.flatMap((p) => [p.x, p.y]));
+  try {
+    cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
+    const diag = Math.hypot(src.cols, src.rows);
+    const before = mat.data32F.slice();
+    try {
+      cv.cornerSubPix(
+        gray,
+        mat,
+        new cv.Size(9, 9),
+        new cv.Size(-1, -1),
+        new cv.TermCriteria(cv.TERM_CRITERIA_EPS + cv.TERM_CRITERIA_COUNT, 30, 0.2)
+      );
+    } catch {
+      return quad;
+    }
+    const lim = Math.max(5, diag * 0.012);
+    return [0, 1, 2, 3].map((i) => {
+      const nx = mat.data32F[i * 2];
+      const ny = mat.data32F[i * 2 + 1];
+      if (!Number.isFinite(nx) || !Number.isFinite(ny)) return quad[i];
+      return Math.hypot(nx - before[i * 2], ny - before[i * 2 + 1]) <= lim
+        ? { x: nx, y: ny }
+        : quad[i];
+    });
+  } finally {
+    gray.delete();
+    mat.delete();
+  }
 }
 
 function rectCorners(rect) {

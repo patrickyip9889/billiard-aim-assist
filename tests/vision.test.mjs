@@ -107,6 +107,52 @@ test('detectTable finds synthetic green table quad', async () => {
   });
 });
 
+test('detectTable quad survives pocket bites at corners and rail midpoints', async () => {
+  await loadCv();
+  const W = 640;
+  const H = 360;
+  const d = new Uint8ClampedArray(W * H * 4);
+  const set = (x, y, r, g, b) => {
+    const i = (y * W + x) * 4;
+    d[i] = r;
+    d[i + 1] = g;
+    d[i + 2] = b;
+    d[i + 3] = 255;
+  };
+  for (let y = 0; y < H; y++) {
+    for (let x = 0; x < W; x++) set(x, y, 34, 34, 38);
+  }
+  for (let y = 36; y <= 324; y++) {
+    for (let x = 48; x <= 592; x++) set(x, y, 40, 118, 54);
+  }
+  const bite = (cx, cy, rad) => {
+    for (let y = cy - rad; y <= cy + rad; y++) {
+      for (let x = cx - rad; x <= cx + rad; x++) {
+        if ((x - cx) ** 2 + (y - cy) ** 2 <= rad * rad && x >= 0 && y >= 0 && x < W && y < H) {
+          set(x, y, 5, 6, 8);
+        }
+      }
+    }
+  };
+  bite(48, 36, 16);
+  bite(592, 36, 16);
+  bite(592, 324, 16);
+  bite(48, 324, 16);
+  bite(320, 36, 14);
+  bite(320, 324, 14);
+  const { corners } = await detectTable({ width: W, height: H, getContext: () => ({ getImageData: () => ({ data: d, width: W, height: H }) }) });
+  const expect = [
+    [48, 36],
+    [592, 36],
+    [592, 324],
+    [48, 324],
+  ];
+  expect.forEach(([ex, ey], i) => {
+    const err = Math.hypot(corners[i].x - ex, corners[i].y - ey);
+    assert.ok(err <= 8, `corner#${i} got (${Math.round(corners[i].x)},${Math.round(corners[i].y)}) expect (${ex},${ey}) err=${err.toFixed(1)}`);
+  });
+});
+
 test('detectBalls finds white cue ball first and colored balls as targets', async () => {
   await loadCv();
   const canvas = makeScene();

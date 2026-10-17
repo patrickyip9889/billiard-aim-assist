@@ -194,21 +194,35 @@ function recompute() {
   }
   const pw = pocketWorldPoints(spec())[state.pocketIdx];
   const f = makeWorldOf(H);
+  const tW = f(picker.target);
   try {
     state.result = computeAim({
       cue: f(picker.cue),
-      target: f(picker.target),
+      target: tW,
       pocket: pw,
       ballRadius: spec().ballD / 2,
     });
   } catch {
     state.result = null;
   }
+  const gi = makeImageOf(H);
+  const tImg = gi(tW);
+  const pImg = gi(pw);
+  const ctrImg = gi({ x: spec().tableL / 2, y: spec().tableW / 2 });
+  const imgRail = (pt) => {
+    const q = gi(pt);
+    const dx = q.x - ctrImg.x;
+    const dy = q.y - ctrImg.y;
+    return Math.abs(dx) >= Math.abs(dy) ? (dx >= 0 ? '右' : '左') : (dy >= 0 ? '下' : '上');
+  };
+  if (state.result && state.result.ghost) {
+    state.result.cutSide = pImg.x >= tImg.x ? 1 : -1;
+  }
   if (state.result && !state.result.feasible) {
     try {
       state.kick = computeKick({
         cue: f(picker.cue),
-        target: f(picker.target),
+        target: tW,
         pocket: pw,
         ballRadius: spec().ballD / 2,
         spec: spec(),
@@ -220,7 +234,7 @@ function recompute() {
     try {
       state.bank = computeBank({
         cue: f(picker.cue),
-        target: f(picker.target),
+        target: tW,
         pocket: pw,
         ballRadius: spec().ballD / 2,
         spec: spec(),
@@ -229,6 +243,18 @@ function recompute() {
       state.bank = null;
     }
     if (state.bank && !state.bank.solutions.length) state.bank = null;
+    if (state.kick) {
+      for (const s of state.kick.solutions) {
+        s.cutSide = gi(s.aimPoint).x >= tImg.x ? 1 : -1;
+        s.label = `${s.cushions}库·${s.bounces.map((b) => imgRail(b.point) + b.diamond.k).join('-')}`;
+      }
+    }
+    if (state.bank) {
+      for (const s of state.bank.solutions) {
+        s.cutSide = gi(s.aimPoint).x >= tImg.x ? 1 : -1;
+        s.label = '翻袋·' + imgRail(s.aimPoint);
+      }
+    }
   }
   if (state.kick) {
     if (state.kickSel >= state.kick.solutions.length) state.kickSel = 0;
@@ -450,21 +476,39 @@ function exitRefine() {
   }
 }
 
+function scoreRefine(pts) {
+  const keep = state.refinePts;
+  state.refinePts = pts;
+  const res = refineResiduals();
+  const avg = res ? res.reduce((a, b) => a + b, 0) / res.length : Infinity;
+  const mx = res ? Math.max(...res) : Infinity;
+  state.refinePts = keep;
+  return { avg, mx };
+}
+
 function autoRefine() {
   const H = homography();
   if (!H || !state.img) return null;
   const pred = pocketsImg(H);
-  const det = detectPockets(state.img, pred, pred.map((p) => ballRadiusAt(p)));
+  let det = detectPockets(state.img, pred, pred.map((p) => ballRadiusAt(p)));
   if (!det.ok) return null;
   state.refinePts = det.pts;
-  const res = refineResiduals();
-  const avg = res ? res.reduce((a, b) => a + b, 0) / res.length : Infinity;
-  const mx = res ? Math.max(...res) : Infinity;
-  if (avg > 45 || mx > 90) {
+  let best = { pts: det.pts, ...scoreRefine(det.pts) };
+  const H2 = homography();
+  if (H2) {
+    const pred2 = pocketsImg(H2);
+    const det2 = detectPockets(state.img, pred2, pred2.map((p) => ballRadiusAt(p)));
+    if (det2.ok) {
+      const s2 = scoreRefine(det2.pts);
+      if (s2.avg < best.avg) best = { pts: det2.pts, ...s2 };
+    }
+  }
+  if (best.avg > 45 || best.mx > 90) {
     state.refinePts = null;
     return null;
   }
-  return { avg, max: mx };
+  state.refinePts = best.pts;
+  return { avg: best.avg, max: best.mx };
 }
 
 let availHCache = 0;
@@ -506,7 +550,7 @@ function startCalibration() {
   render();
 }
 
-async function loadImage(file) {
+async function loadImage(file, auto = true) {
   let src;
   let w;
   let h;
@@ -527,10 +571,10 @@ async function loadImage(file) {
     w = img.naturalWidth;
     h = img.naturalHeight;
   }
-  applyImage(src, w, h);
+  applyImage(src, w, h, auto);
 }
 
-function applyImage(src, w, h) {
+function applyImage(src, w, h, auto = true) {
   if (Math.max(w, h) > 2048) {
     const k = 2048 / Math.max(w, h);
     const c = document.createElement('canvas');
@@ -548,14 +592,41 @@ function applyImage(src, w, h) {
   state.snapTo = null;
   startCalibration();
   layout();
+  if (auto) runAutoDetectFlow(true);
 }
 
-async function autoDetect() {
+async function autoDetect(guardManualEdits = false) {
   if (!state.img) return null;
-  const snap = snapshotCanvas(state.img);
+  const snap = snapshotCanvas(state.img, 960);
   const k = state.imgW / snap.width;
+  const pts0 = guardManualEdits ? JSON.stringify(calibrator.points) : null;
   const t = await detectTable(snap);
-  const corners = t.corners.map((p) => ({ x: p.x * k, y: p.y * k }));
+  const quad = t.corners.map((p) => ({ x: p.x * k, y: p.y * k }));
+  const sp0 = getSpec(state.specKey);
+  const topLong =
+    Math.hypot(quad[1].x - quad[0].x, quad[1].y - quad[0].y) >=
+    Math.hypot(quad[3].x - quad[0].x, quad[3].y - quad[0].y);
+  const sp = topLong ? sp0 : rotateSpec(sp0);
+  const C = sp.cushion ?? 55;
+  const eW = [
+    [-C, -C],
+    [sp.tableL + C, -C],
+    [sp.tableL + C, sp.tableW + C],
+    [-C, sp.tableW + C],
+  ];
+  const corners = [];
+  try {
+    const Hr = computeHomography(eW, quad.map((p) => [p.x, p.y]));
+    for (const p of worldCorners(sp)) {
+      const [x, y] = applyH(Hr, p.x, p.y);
+      corners.push({ x, y });
+    }
+  } catch {
+    corners.push(...quad);
+  }
+  if (pts0 && JSON.stringify(calibrator.points) !== pts0) {
+    return { corners: null, skipped: true };
+  }
   calibrator.points = corners;
   state.rotated = detectOrientation();
   let det = null;
@@ -951,40 +1022,46 @@ function hideCvLoad() {
 }
 
 let autoBusy = false;
-els.autoBtn.addEventListener('click', async () => {
-  if (autoBusy) return;
+
+async function runAutoDetectFlow(guardManualEdits = false) {
+  if (autoBusy) return null;
   autoBusy = true;
   els.autoBtn.disabled = true;
   const label = els.autoBtn.textContent;
   const engineReady = window.cv && typeof window.cv.Mat === 'function';
   if (!engineReady) {
     els.autoBtn.textContent = '⏳ 引擎加载中…';
-    toast('识别引擎首次加载中，请稍候');
     showCvLoad();
   } else {
     els.autoBtn.textContent = '⏳ 识别中…';
   }
   try {
-    const r = await autoDetect();
+    const r = await autoDetect(guardManualEdits);
     state.mode = 'calibrate';
     state.refinePts = null;
     syncUI();
     layout();
-    if (!r || !r.corners) toast('自动识别失败，请手动拖动绿点');
+    if (r && r.skipped) toast('检测到手动调整，已跳过自动识别结果；需要覆盖请点「🎯 自动识别」');
+    else if (!r || !r.corners) toast('自动识别失败，请手动拖动绿点');
     else if (!r.det || !r.det.cue) toast('台面已自动识别，可拖动绿点微调，再点「完成标定」');
-    else toast(`已识别台面、白球和 ${r.det.targets.length} 个候选球，可拖动绿点微调后再点「完成标定」`);
+    else toast(`已自动识别台面、白球和 ${r.det.targets.length} 个候选球，微调后点「完成标定」`);
+    return r;
   } catch (e) {
     state.mode = 'calibrate';
     state.refinePts = null;
     syncUI();
+    layout();
     toast('自动识别失败：' + (e && e.message ? e.message : '未知错误') + '，请手动拖动绿点');
+    return null;
   } finally {
     hideCvLoad();
     els.autoBtn.disabled = false;
     els.autoBtn.textContent = label;
     autoBusy = false;
   }
-});
+}
+
+els.autoBtn.addEventListener('click', () => runAutoDetectFlow(false));
 
 let arStream = null;
 
@@ -1028,17 +1105,32 @@ function captureAR() {
   c.height = Math.round(v.videoHeight * k);
   c.getContext('2d').drawImage(v, 0, 0, c.width, c.height);
   stopAR();
-  applyImage(c, c.width, c.height);
+  applyImage(c, c.width, c.height, false);
   if (!(window.cv && typeof window.cv.Mat === 'function')) showCvLoad();
+  autoBusy = true;
   autoDetect()
-    .then(() => {
-      state.mode = 'balls';
+    .then((r) => {
+      state.mode = r && r.corners ? 'balls' : 'calibrate';
+      state.refinePts = null;
+      let ar = null;
+      if (r && r.corners) ar = autoRefine();
       syncUI();
       layout();
-      toast('已定格并自动标定，可微调球位后选袋口');
+      if (r && r.corners) {
+        toast(
+          ar
+            ? '已定格并自动标定 + 精化袋口，可微调球位后选袋口'
+            : '已定格并自动标定，可微调球位后选袋口'
+        );
+      } else {
+        toast('已定格，请手动拖动绿点完成标定');
+      }
     })
     .catch(() => toast('已定格，请手动拖动绿点完成标定'))
-    .finally(() => hideCvLoad());
+    .finally(() => {
+      hideCvLoad();
+      autoBusy = false;
+    });
 }
 
 function cancelAR() {
@@ -1090,7 +1182,7 @@ async function runDemo(auto) {
   els.demoBtn.disabled = true;
   try {
     const scene = await buildDemoFile(state.specKey);
-    await loadImage(scene.file);
+    await loadImage(scene.file, false);
     calibrator.points = scene.corners.map((p) => ({ ...p }));
     picker.cue = { ...scene.cue };
     picker.target = { ...scene.target };
